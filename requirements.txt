@@ -1,0 +1,12 @@
+# Core Discord library
+discord.py
+
+# For loading environment variables from .env file
+python-dotenv==1.0.0
+
+# Web framework for the keep-alive service
+Flask==3.0.0
+blinker
+
+# Neon PostgresSQL
+asyncpg==0.29.0
