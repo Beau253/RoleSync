@@ -64,14 +64,14 @@ async def set_rule(guild_id: int, role_id: int, nickname_format: str) -> None:
         DO UPDATE SET nickname_format = $3;
     """
     async with db_pool.acquire() as conn:
-        await conn.execute(sql, guild_id, str(role_id), nickname_format)
+        await conn.execute(sql, str(guild_id), str(role_id), nickname_format)
 
 async def remove_rule(guild_id: int, role_id: int) -> bool:
     """Removes a nickname rule using asyncpg."""
     sql = "DELETE FROM nickname_configs WHERE guild_id = $1 AND role_id = $2;"
     async with db_pool.acquire() as conn:
         # execute() returns a status string like 'DELETE 1'
-        status = await conn.execute(sql, guild_id, str(role_id))
+        status = await conn.execute(sql, str(guild_id), str(role_id))
         return 'DELETE 1' in status
 
 async def get_rule(guild_id: int, role_id: int) -> Optional[asyncpg.Record]:
@@ -79,14 +79,14 @@ async def get_rule(guild_id: int, role_id: int) -> Optional[asyncpg.Record]:
     sql = "SELECT nickname_format FROM nickname_configs WHERE guild_id = $1 AND role_id = $2;"
     async with db_pool.acquire() as conn:
         # fetchrow returns a single Record or None
-        return await conn.fetchrow(sql, guild_id, str(role_id))
+        return await conn.fetchrow(sql, str(guild_id), str(role_id))
 
 async def get_all_rules(guild_id: int) -> List[asyncpg.Record]:
     """Retrieves all nickname rules for a guild using asyncpg."""
     sql = "SELECT role_id, nickname_format FROM nickname_configs WHERE guild_id = $1;"
     async with db_pool.acquire() as conn:
         # fetch returns a list of Records
-        return await conn.fetch(sql, guild_id)
+        return await conn.fetch(sql, str(guild_id))
 
 async def save_nickname_history(user_id: int, guild_id: int, role_id: int, previous_nickname: Optional[str]) -> None:
     """Saves or updates the user's previous nickname."""
