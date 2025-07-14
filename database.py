@@ -6,9 +6,6 @@ from typing import List, Dict, Optional
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# The database connection pool will be initialized later.
-db_pool = None
-
 logger = logging.getLogger(__name__)
 
 # This function will be called by asyncpg every time it creates a new connection.
@@ -36,7 +33,7 @@ async def init_db_pool():
 
 # --- Database Interface Functions ---
 
-async def set_rule(guild_id: int, role_id: int, nickname_format: str) -> None:
+async def set_rule(db_pool, guild_id: int, role_id: int, nickname_format: str) -> None:
     """Adds a new rule or updates an existing one using asyncpg."""
     # Note: asyncpg uses $1, $2, etc. for parameters instead of %s
     sql = """
@@ -63,7 +60,7 @@ async def get_rule(guild_id: int, role_id: int) -> Optional[asyncpg.Record]:
         # fetchrow returns a single Record or None
         return await conn.fetchrow(sql, str(guild_id), str(role_id))
 
-async def get_all_rules(guild_id: int) -> List[asyncpg.Record]:
+async def get_all_rules(db_pool, guild_id: int) -> List[asyncpg.Record]:
     """Retrieves all nickname rules for a guild using asyncpg."""
     sql = "SELECT role_id, nickname_format FROM nickname_configs WHERE guild_id = $1;"
     async with db_pool.acquire() as conn:

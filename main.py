@@ -99,8 +99,7 @@ async def main():
         # 1. Initialize the database pool first.
         #    If this fails, the bot will not even try to start.
         logger.info("Initializing database pool...")
-        db_pool = await db.init_db_pool()
-        bot.db_pool = db_pool # Inject the pool into our bot instance
+        bot.db_pool = await db.init_db_pool() # Inject the pool into our bot instance
         logger.info("Database pool successfully initialized.")
         
         # 2. Load cogs after DB is ready.
