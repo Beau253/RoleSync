@@ -80,7 +80,7 @@ class Config(commands.Cog):
     @app_commands.command(name="view-rules", description="View all active nickname rules for this server.")
     async def view_rules_command(self, interaction: discord.Interaction):
         """Command to view all configured rules for the server."""
-        await interaction.response.defer(ephemeral=True, thinking=True)
+        await interaction.response.defer(thinking=True)
 
         # Get all rules from the database for this guild
         all_rules = await db.get_all_rules(interaction.guild.id)
