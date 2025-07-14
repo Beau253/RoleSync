@@ -10,3 +10,5 @@ blinker
 
 # Neon PostgresSQL
 asyncpg==0.29.0
+
+waitress
