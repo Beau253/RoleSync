@@ -86,7 +86,7 @@ async def get_all_rules(guild_id: int) -> List[asyncpg.Record]:
     sql = "SELECT role_id, nickname_format FROM nickname_configs WHERE guild_id = $1;"
     async with db_pool.acquire() as conn:
         # fetch returns a list of Records
-        return await conn.fetch(sql, str(guild_id))
+#        return await conn.fetch(sql, str(guild_id))
 
 async def save_nickname_history(user_id: int, guild_id: int, role_id: int, previous_nickname: Optional[str]) -> None:
     """Saves or updates the user's previous nickname."""
