@@ -4,24 +4,27 @@ import asyncpg
 import logging
 from typing import List, Dict, Optional
 
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
 # The database connection pool will be initialized later.
 db_pool = None
 
-async def connection_init(connection):
-    """Sets the search_path for every new connection."""
-    logging.info("New DB connection opened, setting search_path to 'public'.")
-    await connection.execute("SET search_path TO public;")
-
 async def init_db_pool():
-    """Initializes the database connection pool."""
-    global db_pool
+    """Initializes the database connection pool."""        
     DATABASE_URL = os.getenv("DATABASE_URL")
     if not DATABASE_URL:
+        # Use logging here too
+        logging.critical("DATABASE_URL not found in environment variables.")
         raise ValueError("DATABASE_URL not found in environment variables.")
     
-    db_pool = await asyncpg.create_pool(dsn=DATABASE_URL)
-
-    logging.info("Database connection pool initialized.")
+    try:
+        logging.info(f"Attempting to connect to database with DSN: {DATABASE_URL}")
+        pool = await asyncpg.create_pool(dsn=DATABASE_URL)
+        logging.info("Database connection pool successfully created.")
+        return pool # MODIFIED: Return the pool object
+    except Exception as e:
+        logging.critical(f"Failed to create database pool: {e}", exc_info=True)
+        raise # Re-raise the exception so the main app knows it failed
 
 # --- Database Interface Functions ---
 
