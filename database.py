@@ -1,24 +1,39 @@
 # file: database.py
 import os
 import asyncpg
+import logging
 from typing import List, Dict, Optional
 
-# The database connection pool will be initialized later.
-db_pool = None
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+logger = logging.getLogger(__name__)
+
+# This function will be called by asyncpg every time it creates a new connection.
+async def connection_init(connection):
+    """Sets the search_path for every new connection."""
+    logger.info("A new DB connection was opened. Setting search_path to 'public' for this connection.")
+    await connection.execute("SET search_path TO public;")
 
 async def init_db_pool():
-    """Initializes the database connection pool."""
-    global db_pool
+    """Initializes the database connection pool and returns it."""
     DATABASE_URL = os.getenv("DATABASE_URL")
     if not DATABASE_URL:
+        logger.critical("DATABASE_URL not found in environment variables.")
         raise ValueError("DATABASE_URL not found in environment variables.")
     
-    db_pool = await asyncpg.create_pool(dsn=DATABASE_URL)
-    print("Database connection pool initialized.")
+    try:
+        logger.info(f"Attempting to create database pool for DSN ending in: ...{DATABASE_URL[-20:]}")
+        # We pass our init function to the pool creator. This is the correct way for asyncpg.
+        pool = await asyncpg.create_pool(dsn=DATABASE_URL, init=connection_init)
+        logger.info("Database connection pool successfully created and configured.")
+        return pool
+    except Exception as e:
+        logger.critical(f"Failed to create database pool: {e}", exc_info=True)
+        raise
 
 # --- Database Interface Functions ---
 
-async def set_rule(guild_id: int, role_id: int, nickname_format: str) -> None:
+async def set_rule(db_pool, guild_id: int, role_id: int, nickname_format: str) -> None:
     """Adds a new rule or updates an existing one using asyncpg."""
     sql = """
         INSERT INTO nickname_configs (guild_id, role_id, nickname_format)
@@ -42,7 +57,7 @@ async def get_rule(guild_id: int, role_id: int) -> Optional[asyncpg.Record]:
     async with db_pool.acquire() as conn:
         return await conn.fetchrow(sql, str(guild_id), str(role_id))
 
-async def get_all_rules(guild_id: int) -> List[asyncpg.Record]:
+async def get_all_rules(db_pool, guild_id: int) -> List[asyncpg.Record]:
     """Retrieves all nickname rules for a guild using asyncpg."""
     sql = "SELECT role_id, nickname_format FROM nickname_configs WHERE guild_id = $1;"
     async with db_pool.acquire() as conn:
