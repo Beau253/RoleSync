@@ -6,8 +6,7 @@ import database as db
 from discord.ext import commands
 from dotenv import load_dotenv
 from flask import Flask
-from threading import Thread
-from waitress import serve
+from threading import Thread # Import the Thread class
 
 # --- Initial Setup ---
 load_dotenv()
@@ -56,9 +55,9 @@ def health_check():
 
 # --- Function to run the Flask app ---
 def run_flask_app():
-    port = int(os.getenv("API_SERVER_PORT", 8080))
-    print(f"Starting production web server on port {port}...")
-    serve(app, host='0.0.0.0', port=port)
+    """Runs the Flask app in a separate thread."""
+    port = int(os.environ.get("PORT", 8080)) # Render uses PORT env var
+    app.run(host='0.0.0.0', port=port)
 
 # --- Main Application Runner ---
 async def main():
