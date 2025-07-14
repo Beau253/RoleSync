@@ -7,14 +7,50 @@ from typing import List, Dict, Optional
 db_pool = None
 
 async def init_db_pool():
-    """Initializes the database connection pool."""
+    """
+    Initializes the database connection pool and ensures necessary tables exist.
+    This function should be called once when the bot starts up.
+    """
     global db_pool
     DATABASE_URL = os.getenv("DATABASE_URL")
     if not DATABASE_URL:
         raise ValueError("DATABASE_URL not found in environment variables.")
     
-    db_pool = await asyncpg.create_pool(dsn=DATABASE_URL)
-    print("Database connection pool initialized.")
+    try:
+        db_pool = await asyncpg.create_pool(dsn=DATABASE_URL)
+        print("Database connection pool initialized.")
+
+        # Acquire a connection to create tables if they don't exist
+        async with db_pool.acquire() as conn:
+            # Create the nickname_configs table
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS nickname_configs (
+                    guild_id BIGINT NOT NULL,
+                    role_id BIGINT NOT NULL,
+                    nickname_format TEXT NOT NULL,
+                    PRIMARY KEY (guild_id, role_id)
+                );
+            """)
+
+            # Create the nickname_history table
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS nickname_history (
+                    user_id BIGINT NOT NULL,
+                    guild_id BIGINT NOT NULL,
+                    role_id BIGINT NOT NULL,
+                    previous_nickname TEXT,
+                    timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    PRIMARY KEY (user_id, guild_id, role_id)
+                );
+            """)
+        
+        print("Database tables verified/created successfully.")
+
+    except Exception as e:
+        print(f"Error during database initialization: {e}")
+        # Depending on your needs, you might want to exit the application if the DB can't be set up.
+        # import sys
+        # sys.exit("Could not initialize database. Exiting.")
 
 # --- Database Interface Functions ---
 
