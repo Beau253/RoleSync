@@ -6,6 +6,11 @@ from typing import List, Dict, Optional
 # The database connection pool will be initialized later.
 db_pool = None
 
+async def connection_init(connection):
+    """Sets the search_path for every new connection."""
+    print("New DB connection opened, setting search_path to 'public'.")
+    await connection.execute("SET search_path TO public;")
+
 async def init_db_pool():
     """Initializes the database connection pool."""
     global db_pool
@@ -14,6 +19,7 @@ async def init_db_pool():
         raise ValueError("DATABASE_URL not found in environment variables.")
     
     db_pool = await asyncpg.create_pool(dsn=DATABASE_URL)
+    
     print("Database connection pool initialized.")
 
 # --- Database Interface Functions ---
