@@ -1,6 +1,7 @@
 # file: database.py
 import os
 import asyncpg
+import logging
 from typing import List, Dict, Optional
 
 # The database connection pool will be initialized later.
@@ -8,7 +9,7 @@ db_pool = None
 
 async def connection_init(connection):
     """Sets the search_path for every new connection."""
-    log.info("New DB connection opened, setting search_path to 'public'.")
+    logging.info("New DB connection opened, setting search_path to 'public'.")
     await connection.execute("SET search_path TO public;")
 
 async def init_db_pool():
@@ -20,7 +21,7 @@ async def init_db_pool():
     
     db_pool = await asyncpg.create_pool(dsn=DATABASE_URL)
 
-    log.info("Database connection pool initialized.")
+    logging.info("Database connection pool initialized.")
 
 # --- Database Interface Functions ---
 
