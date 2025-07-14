@@ -8,7 +8,8 @@ python-dotenv==1.0.0
 Flask==3.0.0
 blinker
 
-# Neon PostgresSQL
-asyncpg==0.29.0
-
+# Production WSGI server for Flask
 waitress
+
+# PostgresSQL Driver
+asyncpg==0.29.0

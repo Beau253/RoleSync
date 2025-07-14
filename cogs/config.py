@@ -13,7 +13,9 @@ class Config(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-
+    # --- Command Error Handler ---
+    # This is a local error handler for this specific cog.
+    # It will catch errors from the commands within this file.
     async def cog_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
         """Handles errors for commands in this cog."""
         if isinstance(error, app_commands.MissingPermissions):
@@ -81,7 +83,7 @@ class Config(commands.Cog):
         await interaction.response.defer(ephemeral=True, thinking=True)
 
         # Get all rules from the database for this guild
-        all_rules = await db.get_all_rules(self.bot.db_pool, interaction.guild.id)
+        all_rules = await db.get_all_rules(interaction.guild.id)
 
         if not all_rules:
             await interaction.followup.send("There are no nickname rules configured for this server.")
