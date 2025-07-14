@@ -9,22 +9,30 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # The database connection pool will be initialized later.
 db_pool = None
 
+logger = logging.getLogger(__name__)
+
+# This function will be called by asyncpg every time it creates a new connection.
+async def connection_init(connection):
+    """Sets the search_path for every new connection."""
+    logger.info("A new DB connection was opened. Setting search_path to 'public' for this connection.")
+    await connection.execute("SET search_path TO public;")
+
 async def init_db_pool():
-    """Initializes the database connection pool."""        
+    """Initializes the database connection pool and returns it."""
     DATABASE_URL = os.getenv("DATABASE_URL")
     if not DATABASE_URL:
-        # Use logging here too
-        logging.critical("DATABASE_URL not found in environment variables.")
+        logger.critical("DATABASE_URL not found in environment variables.")
         raise ValueError("DATABASE_URL not found in environment variables.")
     
     try:
-        logging.info(f"Attempting to connect to database with DSN: {DATABASE_URL}")
-        pool = await asyncpg.create_pool(dsn=DATABASE_URL)
-        logging.info("Database connection pool successfully created.")
-        return pool # MODIFIED: Return the pool object
+        logger.info(f"Attempting to create database pool for DSN ending in: ...{DATABASE_URL[-20:]}")
+        # We pass our init function to the pool creator. This is the correct way for asyncpg.
+        pool = await asyncpg.create_pool(dsn=DATABASE_URL, init=connection_init)
+        logger.info("Database connection pool successfully created and configured.")
+        return pool
     except Exception as e:
-        logging.critical(f"Failed to create database pool: {e}", exc_info=True)
-        raise # Re-raise the exception so the main app knows it failed
+        logger.critical(f"Failed to create database pool: {e}", exc_info=True)
+        raise
 
 # --- Database Interface Functions ---
 
