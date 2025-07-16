@@ -1,6 +1,10 @@
 import discord
+import logging
 from discord.ext import commands
 import database as db
+
+logger = logging.getLogger(__name__)
+
 
 class NicknameUpdater(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -33,11 +37,11 @@ class NicknameUpdater(commands.Cog):
                 
                 try:
                     await after.edit(nick=new_nickname)
-                    print(f"Updated nickname for {after.name} in {after.guild.name} due to role '{role.name}'.")
+                    logger.info(f"Updated nickname for {after.name} in {after.guild.name} due to role '{role.name}'.")
                 except discord.Forbidden:
-                    print(f"Error: Could not change nickname for {after.name}. Check permissions in '{after.guild.name}'.")
+                    logger.info(f"Error: Could not change nickname for {after.name}. Check permissions in '{after.guild.name}'.")
                 except Exception as e:
-                    print(f"An unexpected error occurred while changing nickname for {after.name}: {e}")
+                    logger.info(f"An unexpected error occurred while changing nickname for {after.name}: {e}")
 
         # --- LOGIC FOR REMOVED ROLES ---
         removed_roles = before_roles_set - after_roles_set
@@ -54,17 +58,17 @@ class NicknameUpdater(commands.Cog):
                     rule = await db.get_rule(after.guild.id, role.id)
                     if rule and after.nick == self.format_nickname(rule['nickname_format'], after):
                         await after.edit(nick=previous_nickname)
-                        print(f"Reverted nickname for {after.name} in {after.guild.name} because role '{role.name}' was removed.")
+                        logger.info(f"Reverted nickname for {after.name} in {after.guild.name} because role '{role.name}' was removed.")
                     elif not rule: # If rule was deleted, revert anyway if history exists
                          await after.edit(nick=previous_nickname)
-                         print(f"Reverted nickname for {after.name} in {after.guild.name} because role '{role.name}' (rule deleted) was removed.")
+                         logger.info(f"Reverted nickname for {after.name} in {after.guild.name} because role '{role.name}' (rule deleted) was removed.")
 
                     # Clean up the history record regardless
                     await db.delete_nickname_history(after.id, after.guild.id, role.id)
                 except discord.Forbidden:
-                    print(f"Error: Could not revert nickname for {after.name}. Check permissions in '{after.guild.name}'.")
+                    logger.info(f"Error: Could not revert nickname for {after.name}. Check permissions in '{after.guild.name}'.")
                 except Exception as e:
-                    print(f"An unexpected error occurred while reverting nickname for {after.name}: {e}")
+                    logger.info(f"An unexpected error occurred while reverting nickname for {after.name}: {e}")
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(NicknameUpdater(bot))
