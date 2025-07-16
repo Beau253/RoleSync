@@ -23,7 +23,10 @@ app = Flask(__name__)
 # --- Bot Definition ---
 intents = discord.Intents.default()
 intents.members = True
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(command_prefix="!", intents=intents,
+                   log_handler=None, # Disable default handler setup
+                   log_level=logging.INFO # Tell it which level to use
+                   )
 
 # --- Bot Events ---
 
@@ -69,13 +72,27 @@ async def main():
     flask_thread.start()
     logger.info("Flask keep-alive server started in a background thread.")
     
+
+    log_formatter = logging.Formatter('%(asctime)s %(levelname)-8s %(name)-15s: %(message)s')
+    
+    # File Handler
+    file_handler = logging.FileHandler(filename='bot.log', encoding='utf-8', mode='w')
+    file_handler.setFormatter(log_formatter)
+
+    # Console Handler
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(log_formatter)
+
+    # Add our handlers to the bot's logger
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
     # Initialize database and load cogs
     await db.init_db_pool()
     await load_cogs()
 
     # Start the bot. This will block until the bot is closed.
     try:
-        await bot.start(BOT_TOKEN, log_handler=None)
+        await bot.start(BOT_TOKEN)
     finally:
         # This block will run when KeyboardInterrupt is received.
         logger.info("\nShutting down bot...")
