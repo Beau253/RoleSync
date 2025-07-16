@@ -3,6 +3,7 @@ import os
 import asyncio
 import discord
 import database as db
+import logging
 from discord.ext import commands
 from dotenv import load_dotenv
 from flask import Flask
@@ -26,27 +27,27 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 # --- Bot Events ---
 
+logger = logging.getLogger('discord')
+
+
 @bot.event
 async def on_ready():
     """Fires when the bot is ready."""
-    print(f'Logged in as {bot.user.name} (ID: {bot.user.id})')
-    print('------')
-
-    # The automatic startup sync has been removed to prevent rate-limiting on startup.
-    # The sync should now only be triggered manually via the /sync-nicknames command.
-    print("Startup nickname history sync has been disabled. Use /sync-nicknames to run manually.")
+    logger.info(f'Logged in as {bot.user.name} (ID: {bot.user.id})')
+    logger.info('------')
+    logger.info("Startup nickname history sync has been disabled. Use /sync-nicknames to run manually.")
     
     try:
         synced = await bot.tree.sync()
-        print(f"Synced {len(synced)} command(s)")
+        logger.info(f"Synced {len(synced)} command(s)")
     except Exception as e:
-        print(f"Failed to sync commands: {e}")
+        logger.info(f"Failed to sync commands: {e}")
 
 async def load_cogs():
     for filename in os.listdir('./cogs'):
         if filename.endswith('.py') and not filename.startswith('__'):
             await bot.load_extension(f'cogs.{filename[:-3]}')
-            print(f"Loaded cog: {filename}")
+            logger.info(f"Loaded cog: {filename}")
 
 # --- Health Check Endpoint ---
 @app.route('/health')
@@ -66,7 +67,7 @@ async def main():
     # Daemon threads exit when the main program exits.
     flask_thread = Thread(target=run_flask_app, daemon=True)
     flask_thread.start()
-    print("Flask keep-alive server started in a background thread.")
+    logger.info("Flask keep-alive server started in a background thread.")
     
     # Initialize database and load cogs
     await db.init_db_pool()
@@ -77,18 +78,18 @@ async def main():
         await bot.start(BOT_TOKEN)
     finally:
         # This block will run when KeyboardInterrupt is received.
-        print("\nShutting down bot...")
+        logger.info("\nShutting down bot...")
         if not bot.is_closed():
             await bot.close()
         
-        print("Closing database pool...")
+        logger.info("Closing database pool...")
         if db.db_pool:
             await db.db_pool.close()
         
-        print("Shutdown complete.")
+        logger.info("Shutdown complete.")
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("Bot shutdown initiated by user.")
+        logger.info("Bot shutdown initiated by user.")
