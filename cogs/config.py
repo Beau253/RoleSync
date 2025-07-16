@@ -4,6 +4,7 @@ import discord
 import logging
 from discord import app_commands
 from discord.ext import commands
+import utils
 
 # Import our database functions
 import database as db
@@ -20,17 +21,26 @@ class Config(commands.Cog):
     async def cog_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
         """Handles errors for commands in this cog."""
         if isinstance(error, app_commands.MissingPermissions):
-            await interaction.response.send_message(
-                "You do not have the required permissions (Manage Nicknames) to use this command.",
+            # Use followup if already deferred, otherwise use response.
+            send_method = interaction.followup.send if interaction.response.is_done() else interaction.response.send_message
+            await send_method(
+                "You do not have the required permissions to use this command.",
                 ephemeral=True
             )
         else:
             # For other errors, it's good practice to log them and inform the user.
-            logging.info(f"An error occurred in a config command: {error}")
-            await interaction.response.send_message(
-                "An unexpected error occurred. Please try again later.",
-                ephemeral=True
-            )
+            logging.error(f"An error occurred in the '{interaction.command.name}' command", exc_info=error)
+            
+            # Use followup if already deferred, otherwise use response.
+            send_method = interaction.followup.send if interaction.response.is_done() else interaction.response.send_message
+            try:
+                await send_method(
+                    "An unexpected error occurred. Please try again later.",
+                    ephemeral=True
+                )
+            except discord.errors.InteractionResponded:
+                # This can happen in rare race conditions. Logging is sufficient.
+                pass
 
     # --- Commands ---
 
@@ -142,7 +152,7 @@ class Config(commands.Cog):
 
             # Check if the member has the target role
             if role in member.roles:
-                expected_nickname = self._format_nickname(nickname_format, member)
+                expected_nickname = utils.format_nickname(nickname_format, member)
 
                 # Check if an update is needed
                 if member.nick != expected_nickname:
@@ -226,16 +236,16 @@ class Config(commands.Cog):
         
         await interaction.followup.send("✅ Nickname history synchronization is complete.")
 
-    @staticmethod
-    def _format_nickname(format_string: str, member: discord.Member) -> str:
-        """
-        Helper to replace placeholders in the format string with member data.
-        (This is a static copy of the helper in the other cog to avoid cross-imports)
-        """
-        display_name = member.display_name
-        formatted = format_string.replace("{username}", member.name)
-        formatted = formatted.replace("{display_name}", display_name)
-        return formatted[:32] # Truncate to Discord's 32-character limit
+#    @staticmethod
+#    def _format_nickname(format_string: str, member: discord.Member) -> str:
+#        """
+#        Helper to replace placeholders in the format string with member data.
+#        (This is a static copy of the helper in the other cog to avoid cross-imports)
+#        """
+#        display_name = member.display_name
+#        formatted = format_string.replace("{username}", member.name)
+#        formatted = formatted.replace("{display_name}", display_name)
+#        return formatted[:32] # Truncate to Discord's 32-character limit
 
 # This special function is what discord.py looks for when it loads a cog.
 async def setup(bot: commands.Bot):
