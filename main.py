@@ -77,10 +77,7 @@ async def main():
     # Console Handler
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(log_formatter)
-
-    # Add our handlers to the bot's logging
-    logging.addHandler(file_handler)
-    logging.addHandler(console_handler)
+ 
     # Initialize database and load cogs
     await db.init_db_pool()
     await load_cogs()
