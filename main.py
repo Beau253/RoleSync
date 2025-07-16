@@ -75,7 +75,7 @@ async def main():
 
     # Start the bot. This will block until the bot is closed.
     try:
-        await bot.start(BOT_TOKEN)
+        await bot.start(BOT_TOKEN, log_handler=None)
     finally:
         # This block will run when KeyboardInterrupt is received.
         logger.info("\nShutting down bot...")
