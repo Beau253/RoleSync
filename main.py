@@ -23,34 +23,29 @@ app = Flask(__name__)
 # --- Bot Definition ---
 intents = discord.Intents.default()
 intents.members = True
-bot = commands.Bot(command_prefix="!", intents=intents,
-                   log_handler=None, # Disable default handler setup
-                   log_level=logging.INFO # Tell it which level to use
-                   )
+intents.message_content = True
+bot = commands.Bot(command_prefix="!", intents=intents)
 
-# --- Bot Events ---
-
-logger = logging.getLogger('discord')
 
 
 @bot.event
 async def on_ready():
     """Fires when the bot is ready."""
-    logger.info(f'Logged in as {bot.user.name} (ID: {bot.user.id})')
-    logger.info('------')
-    logger.info("Startup nickname history sync has been disabled. Use /sync-nicknames to run manually.")
+    logging.info(f'Logged in as {bot.user.name} (ID: {bot.user.id})')
+    logging.info('------')
+    logging.info("Startup nickname history sync has been disabled. Use /sync-nicknames to run manually.")
     
     try:
         synced = await bot.tree.sync()
-        logger.info(f"Synced {len(synced)} command(s)")
+        logging.info(f"Synced {len(synced)} command(s)")
     except Exception as e:
-        logger.info(f"Failed to sync commands: {e}")
+        logging.info(f"Failed to sync commands: {e}")
 
 async def load_cogs():
     for filename in os.listdir('./cogs'):
         if filename.endswith('.py') and not filename.startswith('__'):
             await bot.load_extension(f'cogs.{filename[:-3]}')
-            logger.info(f"Loaded cog: {filename}")
+            logging.info(f"Loaded cog: {filename}")
 
 # --- Health Check Endpoint ---
 @app.route('/health')
@@ -70,7 +65,7 @@ async def main():
     # Daemon threads exit when the main program exits.
     flask_thread = Thread(target=run_flask_app, daemon=True)
     flask_thread.start()
-    logger.info("Flask keep-alive server started in a background thread.")
+    logging.info("Flask keep-alive server started in a background thread.")
     
 
     log_formatter = logging.Formatter('%(asctime)s %(levelname)-8s %(name)-15s: %(message)s')
@@ -83,9 +78,9 @@ async def main():
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(log_formatter)
 
-    # Add our handlers to the bot's logger
-    logger.addHandler(file_handler)
-    logger.addHandler(console_handler)
+    # Add our handlers to the bot's logging
+    logging.addHandler(file_handler)
+    logging.addHandler(console_handler)
     # Initialize database and load cogs
     await db.init_db_pool()
     await load_cogs()
@@ -95,18 +90,33 @@ async def main():
         await bot.start(BOT_TOKEN)
     finally:
         # This block will run when KeyboardInterrupt is received.
-        logger.info("\nShutting down bot...")
+        logging.info("\nShutting down bot...")
         if not bot.is_closed():
             await bot.close()
         
-        logger.info("Closing database pool...")
+        logging.info("Closing database pool...")
         if db.db_pool:
             await db.db_pool.close()
         
-        logger.info("Shutdown complete.")
+        logging.info("Shutdown complete.")
 
 if __name__ == "__main__":
+    # === THE NEW LOGGING SETUP (SIMPLE & EFFECTIVE) ===
+    log_formatter = logging.Formatter('%(asctime)s %(levelname)-8s %(name)-20s: %(message)s')
+    
+    # File Handler
+    file_handler = logging.FileHandler(filename='bot.log', encoding='utf-8', mode='w')
+    file_handler.setFormatter(log_formatter)
+
+    # Console Handler
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(log_formatter)
+
+    # Configure the root logger
+    logging.basicConfig(level=logging.INFO, handlers=[console_handler, file_handler])
+    # === END OF LOGGING SETUP ===
+
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        logger.info("Bot shutdown initiated by user.")
+        logging.info("Bot shutdown initiated by user.")

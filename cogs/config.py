@@ -8,8 +8,6 @@ from discord.ext import commands
 # Import our database functions
 import database as db
 
-logger = logging.getLogger(__name__)
-
 class Config(commands.Cog):
     """A cog for handling the bot's configuration commands."""
 
@@ -28,7 +26,7 @@ class Config(commands.Cog):
             )
         else:
             # For other errors, it's good practice to log them and inform the user.
-            logger.info(f"An error occurred in a config command: {error}")
+            logging.info(f"An error occurred in a config command: {error}")
             await interaction.response.send_message(
                 "An unexpected error occurred. Please try again later.",
                 ephemeral=True
@@ -158,7 +156,7 @@ class Config(commands.Cog):
                         failed_count += 1
                     except Exception as e:
                         failed_count += 1
-                        logger.info(f"Failed to update {member.name} during run-rule: {e}")
+                        logging.info(f"Failed to update {member.name} during run-rule: {e}")
                 else:
                     # Nickname is already correct
                     skipped_count += 1
@@ -180,15 +178,15 @@ class Config(commands.Cog):
 
     async def _sync_all_guilds_history(self):
         """A reusable method to sync nickname history for all guilds."""
-        logger.info("Starting baseline nickname history sync...")
+        logging.info("Starting baseline nickname history sync...")
         synced_guilds = 0
         for guild in self.bot.guilds:
             try:
-                logger.info(f"Syncing history for guild: {guild.name} ({guild.id})")
+                logging.info(f"Syncing history for guild: {guild.name} ({guild.id})")
                 
                 all_rules = await db.get_all_rules(guild.id)
                 if not all_rules:
-                    logger.info(f" -> No rules found for {guild.name}, skipping.")
+                    logging.info(f" -> No rules found for {guild.name}, skipping.")
                     continue
 
                 rule_role_ids = {int(r['role_id']) for r in all_rules}
@@ -205,15 +203,15 @@ class Config(commands.Cog):
                             await db.save_nickname_history(member.id, guild.id, role.id, member.nick)
                             history_entries_saved += 1
                 
-                logger.info(f" -> Scanned {member_count} members, saved/updated {history_entries_saved} history entries.")
+                logging.info(f" -> Scanned {member_count} members, saved/updated {history_entries_saved} history entries.")
                 synced_guilds += 1
 
             except discord.Forbidden:
-                logger.info(f" -> ERROR: Missing permissions to fetch members in {guild.name}. Skipping.")
+                logging.info(f" -> ERROR: Missing permissions to fetch members in {guild.name}. Skipping.")
             except Exception as e:
-                logger.info(f" -> ERROR: An unexpected error during history sync for {guild.name}: {e}")
+                logging.info(f" -> ERROR: An unexpected error during history sync for {guild.name}: {e}")
 
-        logger.info(f"--- Baseline sync complete. Processed {synced_guilds}/{len(self.bot.guilds)} guilds. ---")
+        logging.info(f"--- Baseline sync complete. Processed {synced_guilds}/{len(self.bot.guilds)} guilds. ---")
 
         # In cogs/config.py, inside the Config class
 
