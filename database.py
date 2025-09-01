@@ -1,6 +1,7 @@
 # file: database.py
 import os
 import asyncpg
+import discord 
 from typing import List, Dict, Optional
 
 # The database connection pool will be initialized later.
