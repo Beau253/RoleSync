@@ -243,28 +243,33 @@ async def get_all_dependencies(guild_id: int) -> List[asyncpg.Record]:
 
 async def get_full_hierarchy_for_role(guild_id: int, role_id: int) -> List[int]:
     """
-    Recursively fetches the entire dependency chain for a given role, including the starting role.
-    Returns a list of role IDs.
+    Recursively fetches the entire dependency tree for a given role (parents and children).
+    Returns a list of all role IDs connected to the starting role.
     """
     async with db_pool.acquire() as conn:
-        # Using a recursive query (CTE) is the most efficient way to walk a hierarchy in SQL.
+        # This more powerful recursive query traverses both up and down the dependency tree.
         sql = """
-            WITH RECURSIVE dependency_chain AS (
-                -- Selection of the starting role
-                SELECT role_id, required_role_id FROM role_dependencies WHERE guild_id = $1 AND role_id = $2
-                UNION ALL
-                -- Recursive member that finds the parent of the previous level
+            WITH RECURSIVE full_chain AS (
+                -- Anchor: Find all direct connections to the starting role
+                SELECT role_id, required_role_id
+                FROM role_dependencies WHERE guild_id = $1 AND (role_id = $2 OR required_role_id = $2)
+                
+                UNION
+                
+                -- Recursive part
                 SELECT rd.role_id, rd.required_role_id
                 FROM role_dependencies rd
-                JOIN dependency_chain dc ON rd.role_id = dc.required_role_id
+                INNER JOIN full_chain fc ON rd.role_id = fc.required_role_id OR rd.required_role_id = fc.role_id
                 WHERE rd.guild_id = $1
             )
-            SELECT role_id FROM dependency_chain
+            SELECT role_id FROM full_chain
             UNION
-            SELECT required_role_id FROM dependency_chain;
+            SELECT required_role_id FROM full_chain;
         """
         records = await conn.fetch(sql, guild_id, role_id)
         
-        hierarchy = {record['role_id'] for record in records}
-        hierarchy.add(role_id) # Ensure the starting role is always included
-        return list(hierarchy)
+        # Collect all unique role IDs from the chain
+        hierarchy = {record[col] for record in records for col in record.keys()}
+        hierarchy.add(role_id)  # Ensure the starting role is always included
+        
+        return list(hierarchy) if hierarchy else [role_id]

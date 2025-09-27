@@ -90,25 +90,31 @@ class Delegation(commands.Cog):
 
         # --- 2. CALCULATE ROLES TO ADD (DEPENDENCY HIERARCHY) ---
         hierarchy_to_add_ids = await db.get_full_hierarchy_for_role(interaction.guild.id, target_role.id)
-        # Filter out roles the user already has
         user_current_role_ids = {r.id for r in user.roles}
         final_add_ids = [rid for rid in hierarchy_to_add_ids if rid not in user_current_role_ids]
         roles_to_add = [interaction.guild.get_role(rid) for rid in final_add_ids if interaction.guild.get_role(rid)]
 
         if not roles_to_add:
-            return await interaction.followup.send(f"🔷 {user.mention} already has the {target_role.mention} role and all its dependencies.")
+            # Check if they have the main role, if not, it means they have dependencies but not the main one
+            if target_role not in user.roles:
+                 roles_to_add.append(target_role)
+            else:
+                 return await interaction.followup.send(f"🔷 {user.mention} already has the {target_role.mention} role and all its dependencies.")
 
         # --- 3. CALCULATE ROLES TO REMOVE (CONFLICT HIERARCHY) ---
         roles_to_remove = []
         conflicting_role_found = None
+        # Find the first conflict to identify the conflicting hierarchy
         for r_add in roles_to_add:
             conflicting_role_found = await db.get_conflicting_role(interaction.guild.id, user.roles, r_add.id)
             if conflicting_role_found:
-                break # Found the first conflict, that's enough to trigger the logic
+                break 
 
         if conflicting_role_found:
-            hierarchy_to_remove_ids = await db.get_full_hierarchy_for_role(interaction.guild.id, conflicting_role_found.id)
-            roles_to_remove = [r for r in user.roles if r.id in hierarchy_to_remove_ids]
+            # THE KEY CHANGE: Get the entire hierarchy of the conflicting role
+            conflicting_hierarchy_ids = await db.get_full_hierarchy_for_role(interaction.guild.id, conflicting_role_found.id)
+            # Find which of those roles the user actually has
+            roles_to_remove = [r for r in user.roles if r.id in conflicting_hierarchy_ids]
 
         # --- 4. EXECUTE ACTION OR PROMPT USER ---
         if roles_to_remove:
