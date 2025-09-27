@@ -3,7 +3,7 @@
 import discord
 import logging
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 import utils
 
 # Import our database functions
@@ -14,6 +14,10 @@ class Config(commands.Cog):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self.daily_cleanup.start()
+
+    def cog_unload(self):
+        self.daily_cleanup.cancel()
 
     # --- Command Error Handler ---
     # This is a local error handler for this specific cog.
@@ -236,16 +240,58 @@ class Config(commands.Cog):
         
         await interaction.followup.send("✅ Nickname history synchronization is complete.")
 
-#    @staticmethod
-#    def _format_nickname(format_string: str, member: discord.Member) -> str:
-#        """
-#        Helper to replace placeholders in the format string with member data.
-#        (This is a static copy of the helper in the other cog to avoid cross-imports)
-#        """
-#        display_name = member.display_name
-#        formatted = format_string.replace("{username}", member.name)
-#        formatted = formatted.replace("{display_name}", display_name)
-#        return formatted[:32] # Truncate to Discord's 32-character limit
+
+    # --- Self-Cleaning Command and Task ---
+
+    @app_commands.command(name="cleanup-roles", description="Scans the database and removes rules for deleted roles.")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def cleanup_roles_command(self, interaction: discord.Interaction):
+        """Manually triggers a cleanup of stale role entries for this guild."""
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        
+        # Get all current, valid role IDs from the server
+        valid_role_ids = {role.id for role in interaction.guild.roles}
+        
+        # Call the database cleanup function
+        summary = await db.clean_stale_role_entries(interaction.guild.id, valid_role_ids)
+        
+        total_deleted = sum(summary.values())
+        
+        if total_deleted == 0:
+            await interaction.followup.send("✅ Database is already clean. No stale role entries found.")
+            return
+
+        embed = discord.Embed(
+            title="Database Cleanup Report",
+            description=f"Successfully removed a total of **{total_deleted}** stale rule(s) for deleted roles.",
+            color=discord.Color.green()
+        )
+        for table, count in summary.items():
+            if count > 0:
+                embed.add_field(name=f"Cleaned `{table}`", value=f"Removed {count} entries", inline=False)
+
+        await interaction.followup.send(embed=embed)
+
+    @tasks.loop(hours=24)
+    async def daily_cleanup(self):
+        """A background task that runs once a day to clean up stale roles from all guilds."""
+        logging.info("Starting daily cleanup of stale role entries...")
+        for guild in self.bot.guilds:
+            try:
+                valid_role_ids = {role.id for role in guild.roles}
+                summary = await db.clean_stale_role_entries(guild.id, valid_role_ids)
+                total_deleted = sum(summary.values())
+                if total_deleted > 0:
+                    logging.info(f"Cleaned {total_deleted} stale entries from guild '{guild.name}' ({guild.id}).")
+            except Exception as e:
+                logging.error(f"Failed to perform daily cleanup for guild '{guild.name}' ({guild.id}): {e}")
+        logging.info("Daily cleanup task finished.")
+    
+    @daily_cleanup.before_loop
+    async def before_daily_cleanup(self):
+        """Waits until the bot is ready before starting the task loop."""
+        await self.bot.wait_until_ready()
+
 
 # This special function is what discord.py looks for when it loads a cog.
 async def setup(bot: commands.Bot):

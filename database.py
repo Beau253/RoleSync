@@ -273,3 +273,53 @@ async def get_full_hierarchy_for_role(guild_id: int, role_id: int) -> List[int]:
         hierarchy.add(role_id)  # Ensure the starting role is always included
         
         return list(hierarchy) if hierarchy else [role_id]
+    
+async def clean_stale_role_entries(guild_id: int, valid_role_ids: set[int]) -> dict[str, int]:
+    """
+    Scans all tables and removes rows containing role IDs that no longer exist in the guild.
+    Returns a dictionary summarizing the number of deleted entries per table.
+    """
+    if not db_pool:
+        return {}
+
+    deletions_summary = {
+        "nickname_configs": 0,
+        "delegated_role_permissions": 0,
+        "role_dependencies": 0,
+        "role_exclusivity_groups": 0
+    }
+
+    async with db_pool.acquire() as conn:
+        # Get all stored role IDs from all relevant tables for the guild
+        all_tables_ids = {
+            "nickname_configs": await conn.fetch("SELECT role_id FROM nickname_configs WHERE guild_id = $1", guild_id),
+            "delegated_role_permissions": await conn.fetch("SELECT manager_role_id, managed_role_id FROM delegated_role_permissions WHERE guild_id = $1", guild_id),
+            "role_dependencies": await conn.fetch("SELECT role_id, required_role_id FROM role_dependencies WHERE guild_id = $1", guild_id),
+            "role_exclusivity_groups": await conn.fetch("SELECT role_id FROM role_exclusivity_groups WHERE guild_id = $1", guild_id)
+        }
+
+        # --- Clean nickname_configs ---
+        stale_ids = {r['role_id'] for r in all_tables_ids["nickname_configs"]} - valid_role_ids
+        if stale_ids:
+            result = await conn.execute("DELETE FROM nickname_configs WHERE guild_id = $1 AND role_id = ANY($2::BIGINT[])", guild_id, list(stale_ids))
+            deletions_summary["nickname_configs"] = int(result.split(" ")[1])
+
+        # --- Clean delegated_role_permissions ---
+        stale_ids = {r[col] for r in all_tables_ids["delegated_role_permissions"] for col in r.keys()} - valid_role_ids
+        if stale_ids:
+            result = await conn.execute("DELETE FROM delegated_role_permissions WHERE guild_id = $1 AND (manager_role_id = ANY($2::BIGINT[]) OR managed_role_id = ANY($2::BIGINT[]))", guild_id, list(stale_ids))
+            deletions_summary["delegated_role_permissions"] = int(result.split(" ")[1])
+
+        # --- Clean role_dependencies ---
+        stale_ids = {r[col] for r in all_tables_ids["role_dependencies"] for col in r.keys()} - valid_role_ids
+        if stale_ids:
+            result = await conn.execute("DELETE FROM role_dependencies WHERE guild_id = $1 AND (role_id = ANY($2::BIGINT[]) OR required_role_id = ANY($2::BIGINT[]))", guild_id, list(stale_ids))
+            deletions_summary["role_dependencies"] = int(result.split(" ")[1])
+
+        # --- Clean role_exclusivity_groups ---
+        stale_ids = {r['role_id'] for r in all_tables_ids["role_exclusivity_groups"]} - valid_role_ids
+        if stale_ids:
+            result = await conn.execute("DELETE FROM role_exclusivity_groups WHERE guild_id = $1 AND role_id = ANY($2::BIGINT[])", guild_id, list(stale_ids))
+            deletions_summary["role_exclusivity_groups"] = int(result.split(" ")[1])
+
+    return deletions_summary
