@@ -45,6 +45,16 @@ async def init_db_pool():
                 );
             """)
 
+            # Create the role_dependencies table
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS role_dependencies (
+                    guild_id BIGINT NOT NULL,
+                    role_id BIGINT NOT NULL,
+                    required_role_id BIGINT NOT NULL,
+                    PRIMARY KEY (guild_id, role_id, required_role_id)
+                );
+            """)
+
             # Create the delegated_role_permissions table
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS delegated_role_permissions (
@@ -212,3 +222,49 @@ async def get_conflicting_role(guild_id: int, user_roles: List[discord.Role], ne
                 if role.id == conflicting_id:
                     return role
     return None
+
+async def add_dependency(guild_id: int, role_id: int, required_role_id: int) -> None:
+    """Adds a new role dependency."""
+    sql = "INSERT INTO role_dependencies (guild_id, role_id, required_role_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING;"
+    async with db_pool.acquire() as conn:
+        await conn.execute(sql, guild_id, role_id, required_role_id)
+
+async def remove_dependency(guild_id: int, role_id: int, required_role_id: int) -> None:
+    """Removes a role dependency."""
+    sql = "DELETE FROM role_dependencies WHERE guild_id = $1 AND role_id = $2 AND required_role_id = $3;"
+    async with db_pool.acquire() as conn:
+        await conn.execute(sql, guild_id, role_id, required_role_id)
+
+async def get_all_dependencies(guild_id: int) -> List[asyncpg.Record]:
+    """Gets all dependency rules for a guild."""
+    sql = "SELECT role_id, required_role_id FROM role_dependencies WHERE guild_id = $1;"
+    async with db_pool.acquire() as conn:
+        return await conn.fetch(sql, guild_id)
+
+async def get_full_hierarchy_for_role(guild_id: int, role_id: int) -> List[int]:
+    """
+    Recursively fetches the entire dependency chain for a given role, including the starting role.
+    Returns a list of role IDs.
+    """
+    async with db_pool.acquire() as conn:
+        # Using a recursive query (CTE) is the most efficient way to walk a hierarchy in SQL.
+        sql = """
+            WITH RECURSIVE dependency_chain AS (
+                -- Selection of the starting role
+                SELECT role_id, required_role_id FROM role_dependencies WHERE guild_id = $1 AND role_id = $2
+                UNION ALL
+                -- Recursive member that finds the parent of the previous level
+                SELECT rd.role_id, rd.required_role_id
+                FROM role_dependencies rd
+                JOIN dependency_chain dc ON rd.role_id = dc.required_role_id
+                WHERE rd.guild_id = $1
+            )
+            SELECT role_id FROM dependency_chain
+            UNION
+            SELECT required_role_id FROM dependency_chain;
+        """
+        records = await conn.fetch(sql, guild_id, role_id)
+        
+        hierarchy = {record['role_id'] for record in records}
+        hierarchy.add(role_id) # Ensure the starting role is always included
+        return list(hierarchy)

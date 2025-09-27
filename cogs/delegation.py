@@ -9,11 +9,11 @@ import logging
 
 # --- Interactive View for Role Conflicts ---
 class RoleConflictView(discord.ui.View):
-    def __init__(self, target_user: discord.Member, new_role: discord.Role, old_role: discord.Role):
+    def __init__(self, target_user: discord.Member, roles_to_add: List[discord.Role], roles_to_remove: List[discord.Role]):
         super().__init__(timeout=180)  # 3 minute timeout
         self.target_user = target_user
-        self.new_role = new_role
-        self.old_role = old_role
+        self.roles_to_add = roles_to_add
+        self.roles_to_remove = roles_to_remove
         self.interaction: Optional[discord.Interaction] = None
 
     async def on_timeout(self) -> None:
@@ -22,25 +22,31 @@ class RoleConflictView(discord.ui.View):
                 item.disabled = True
             await self.interaction.edit_original_response(content="⌛ Timed out. No action was taken.", view=self)
 
-    @discord.ui.button(label="Remove Old & Add New", style=discord.ButtonStyle.primary, custom_id="swap_roles")
+    @discord.ui.button(label="Confirm Transfer", style=discord.ButtonStyle.primary, custom_id="swap_roles")
     async def swap_roles(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer()
         try:
-            await self.target_user.remove_roles(self.old_role, reason=f"Swapped for {self.new_role.name} by {interaction.user}")
-            await self.target_user.add_roles(self.new_role, reason=f"Granted by {interaction.user}")
-            await interaction.edit_original_response(content=f"✅ Action complete. Removed {self.old_role.mention} and added {self.new_role.mention}.", view=None)
+            # Perform all actions: remove old, add new
+            await self.target_user.remove_roles(*self.roles_to_remove, reason=f"Hierarchy transfer by {interaction.user}")
+            await self.target_user.add_roles(*self.roles_to_add, reason=f"Hierarchy transfer by {interaction.user}")
+            
+            add_mentions = ", ".join(r.mention for r in self.roles_to_add)
+            remove_mentions = ", ".join(r.mention for r in self.roles_to_remove)
+            await interaction.edit_original_response(content=f"✅ **Transfer Complete!**\n**Added:** {add_mentions}\n**Removed:** {remove_mentions}", view=None)
         except discord.Forbidden:
             await interaction.edit_original_response(content="❌ **Action Failed!** The bot's role is not high enough to manage these roles.", view=None)
         self.stop()
 
-    @discord.ui.button(label="Add New Role Only", style=discord.ButtonStyle.secondary, custom_id="add_only")
+    @discord.ui.button(label="Add Only (No Removals)", style=discord.ButtonStyle.secondary, custom_id="add_only")
     async def add_only(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer()
         try:
-            await self.target_user.add_roles(self.new_role, reason=f"Granted by {interaction.user}")
-            await interaction.edit_original_response(content=f"✅ Action complete. Added {self.new_role.mention}. User now has both roles.", view=None)
+            await self.target_user.add_roles(*self.roles_to_add, reason=f"Granted by {interaction.user}")
+
+            add_mentions = ", ".join(r.mention for r in self.roles_to_add)
+            await interaction.edit_original_response(content=f"✅ **Action Complete!**\n**Added:** {add_mentions}\nUser now has both sets of roles.", view=None)
         except discord.Forbidden:
-            await interaction.edit_original_response(content="❌ **Action Failed!** The bot's role is not high enough to assign this role.", view=None)
+            await interaction.edit_original_response(content="❌ **Action Failed!** The bot's role is not high enough to assign these roles.", view=None)
         self.stop()
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.danger, custom_id="cancel")
@@ -67,43 +73,66 @@ class Delegation(commands.Cog):
         return choices[:25]
 
     # --- User-Facing Commands ---
-    @app_commands.command(name="grant-role", description="Assign a role you have permission to manage.")
-    @app_commands.describe(role="The role you want to assign.", user="The member to grant the role to.")
+    @app_commands.command(name="grant-role", description="Assign a role (and its dependencies) you have permission to manage.")
+    @app_commands.describe(role="The main role you want to assign.", user="The member to grant the role to.")
     @app_commands.autocomplete(role=manageable_roles_autocomplete)
     async def grant_role(self, interaction: discord.Interaction, role: str, user: discord.Member):
         await interaction.response.defer(ephemeral=True, thinking=True)
+        
+        # --- 1. VERIFICATION ---
         role_id = int(role)
         target_role = interaction.guild.get_role(role_id)
-
         user_role_ids = [r.id for r in interaction.user.roles]
         manageable_role_ids = await db.get_manageable_roles_for_user(interaction.guild.id, user_role_ids)
 
         if not target_role or role_id not in manageable_role_ids:
             return await interaction.followup.send("❌ You do not have permission to manage this role.")
-        
-        if target_role in user.roles:
-            return await interaction.followup.send(f"🔷 {user.mention} already has the {target_role.mention} role.")
 
-        # Conflict Detection Logic
-        conflicting_role = await db.get_conflicting_role(interaction.guild.id, user.roles, target_role.id)
-        if conflicting_role and conflicting_role != target_role:
-            view = RoleConflictView(target_user=user, new_role=target_role, old_role=conflicting_role)
+        # --- 2. CALCULATE ROLES TO ADD (DEPENDENCY HIERARCHY) ---
+        hierarchy_to_add_ids = await db.get_full_hierarchy_for_role(interaction.guild.id, target_role.id)
+        # Filter out roles the user already has
+        user_current_role_ids = {r.id for r in user.roles}
+        final_add_ids = [rid for rid in hierarchy_to_add_ids if rid not in user_current_role_ids]
+        roles_to_add = [interaction.guild.get_role(rid) for rid in final_add_ids if interaction.guild.get_role(rid)]
+
+        if not roles_to_add:
+            return await interaction.followup.send(f"🔷 {user.mention} already has the {target_role.mention} role and all its dependencies.")
+
+        # --- 3. CALCULATE ROLES TO REMOVE (CONFLICT HIERARCHY) ---
+        roles_to_remove = []
+        conflicting_role_found = None
+        for r_add in roles_to_add:
+            conflicting_role_found = await db.get_conflicting_role(interaction.guild.id, user.roles, r_add.id)
+            if conflicting_role_found:
+                break # Found the first conflict, that's enough to trigger the logic
+
+        if conflicting_role_found:
+            hierarchy_to_remove_ids = await db.get_full_hierarchy_for_role(interaction.guild.id, conflicting_role_found.id)
+            roles_to_remove = [r for r in user.roles if r.id in hierarchy_to_remove_ids]
+
+        # --- 4. EXECUTE ACTION OR PROMPT USER ---
+        if roles_to_remove:
+            # Create the interactive prompt
+            add_mentions = ", ".join(r.mention for r in roles_to_add)
+            remove_mentions = ", ".join(r.mention for r in roles_to_remove)
+            view = RoleConflictView(target_user=user, roles_to_add=roles_to_add, roles_to_remove=roles_to_remove)
+            
             await interaction.followup.send(
-                f"⚠️ **Role Conflict Detected**\n{user.mention} currently has the {conflicting_role.mention} role, which is in the same exclusive group as {target_role.mention}.\nHow would you like to proceed?",
+                f"⚠️ **Hierarchy Conflict Detected!**\nThis action requires a transfer.\n\n**Roles to Add:** {add_mentions}\n**Roles to Remove:** {remove_mentions}\n\nPlease confirm how to proceed.",
                 view=view
             )
             view.interaction = interaction
-            return
-
-        # No conflict found, proceed normally
-        try:
-            await user.add_roles(target_role, reason=f"Role granted by {interaction.user} via delegation.")
-            await interaction.followup.send(f"✅ Successfully granted {target_role.mention} to {user.mention}.")
-        except discord.Forbidden:
-            await interaction.followup.send("❌ **Action Failed!** The bot's role is not high enough to assign this role.")
-        except Exception as e:
-            logging.error(f"Error in grant-role: {e}")
-            await interaction.followup.send("An unexpected error occurred.")
+        else:
+            # No conflict, just add the roles
+            try:
+                await user.add_roles(*roles_to_add, reason=f"Granted by {interaction.user} via delegation.")
+                add_mentions = ", ".join(r.mention for r in roles_to_add)
+                await interaction.followup.send(f"✅ Successfully granted: {add_mentions} to {user.mention}.")
+            except discord.Forbidden:
+                await interaction.followup.send("❌ **Action Failed!** The bot's role is not high enough to assign these roles.")
+            except Exception as e:
+                logging.error(f"Error in grant-role (no conflict): {e}")
+                await interaction.followup.send("An unexpected error occurred.")
 
     @app_commands.command(name="revoke-role", description="Remove a role you have permission to manage.")
     @app_commands.describe(role="The role you want to remove.", user="The member to revoke the role from.")
@@ -135,6 +164,7 @@ class Delegation(commands.Cog):
     # --- Admin Command Groups ---
     delegation_group = app_commands.Group(name="delegation", description="Commands to manage role delegation permissions.")
     exclusive_group = app_commands.Group(name="exclusive-group", description="Commands to manage mutually exclusive role groups.")
+    dependency_group = app_commands.Group(name="dependency", description="Commands to manage role dependencies (hierarchies).")
 
     # --- Delegation Admin Commands ---
     @delegation_group.command(name="grant", description="Allow a manager role to manage another role.")
@@ -199,6 +229,38 @@ class Delegation(commands.Cog):
         for name, role_ids in groups.items():
             role_mentions = [interaction.guild.get_role(rid).mention for rid in role_ids if interaction.guild.get_role(rid)]
             embed.add_field(name=f"Group: `{name}`", value=", ".join(role_mentions) or "No valid roles.", inline=False)
+        await interaction.followup.send(embed=embed)
+
+
+    # --- Dependency Admin Commands ---
+    @dependency_group.command(name="add", description="Set a dependency where one role requires another.")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def dependency_add(self, interaction: discord.Interaction, role: discord.Role, requires: discord.Role):
+        await db.add_dependency(interaction.guild.id, role.id, requires.id)
+        await interaction.response.send_message(f"✅ Dependency set: {role.mention} now requires {requires.mention}.", ephemeral=True)
+
+    @dependency_group.command(name="remove", description="Remove a role dependency.")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def dependency_remove(self, interaction: discord.Interaction, role: discord.Role, requires: discord.Role):
+        await db.remove_dependency(interaction.guild.id, role.id, requires.id)
+        await interaction.response.send_message(f"🗑️ Dependency removed: {role.mention} no longer requires {requires.mention}.", ephemeral=True)
+        
+    @dependency_group.command(name="list", description="List all configured role dependencies.")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def dependency_list(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        dependencies = await db.get_all_dependencies(interaction.guild.id)
+        if not dependencies:
+            return await interaction.followup.send("No role dependencies are configured.")
+
+        embed = discord.Embed(title="Role Dependencies", color=discord.Color.purple())
+        description = ""
+        for dep in dependencies:
+            role = interaction.guild.get_role(dep['role_id'])
+            requires = interaction.guild.get_role(dep['required_role_id'])
+            if role and requires:
+                description += f"{role.mention} requires {requires.mention}\n"
+        embed.description = description
         await interaction.followup.send(embed=embed)
 
 
