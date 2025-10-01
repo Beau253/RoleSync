@@ -274,6 +274,33 @@ async def get_full_hierarchy_for_role(guild_id: int, role_id: int) -> List[int]:
         
         return list(hierarchy) if hierarchy else [role_id]
     
+async def get_role_dependencies(guild_id: int, role_id: int) -> List[int]:
+    """
+    Recursively fetches all roles that the given role depends on (parents).
+    Returns a list of all required role IDs.
+    """
+    async with db_pool.acquire() as conn:
+        # This recursive query traverses "up" the dependency tree.
+        sql = """
+            WITH RECURSIVE dependency_chain AS (
+                -- Anchor: Start with the direct dependencies of the initial role
+                SELECT required_role_id
+                FROM role_dependencies
+                WHERE guild_id = $1 AND role_id = $2
+
+                UNION
+
+                -- Recursive part: Find dependencies of the roles found in the previous step
+                SELECT rd.required_role_id
+                FROM role_dependencies rd
+                INNER JOIN dependency_chain dc ON rd.role_id = dc.required_role_id
+                WHERE rd.guild_id = $1
+            )
+            SELECT required_role_id FROM dependency_chain;
+        """
+        records = await conn.fetch(sql, guild_id, role_id)
+        return [record['required_role_id'] for record in records]
+
 async def clean_stale_role_entries(guild_id: int, valid_role_ids: set[int]) -> dict[str, int]:
     """
     Scans all tables and removes rows containing role IDs that no longer exist in the guild.

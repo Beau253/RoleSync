@@ -89,17 +89,17 @@ class Delegation(commands.Cog):
             return await interaction.followup.send("❌ You do not have permission to manage this role.")
 
         # --- 2. CALCULATE ROLES TO ADD (DEPENDENCY HIERARCHY) ---
-        hierarchy_to_add_ids = await db.get_full_hierarchy_for_role(interaction.guild.id, target_role.id)
+        # Get all roles this role depends on (upward traversal).
+        dependency_ids = await db.get_role_dependencies(interaction.guild.id, target_role.id)
+        # Always include the target role itself in the list of roles to add.
+        all_ids_to_add = set(dependency_ids) | {target_role.id}
+
         user_current_role_ids = {r.id for r in user.roles}
-        final_add_ids = [rid for rid in hierarchy_to_add_ids if rid not in user_current_role_ids]
+        final_add_ids = [rid for rid in all_ids_to_add if rid not in user_current_role_ids]
         roles_to_add = [interaction.guild.get_role(rid) for rid in final_add_ids if interaction.guild.get_role(rid)]
 
         if not roles_to_add:
-            # Check if they have the main role, if not, it means they have dependencies but not the main one
-            if target_role not in user.roles:
-                 roles_to_add.append(target_role)
-            else:
-                 return await interaction.followup.send(f"🔷 {user.mention} already has the {target_role.mention} role and all its dependencies.")
+            return await interaction.followup.send(f"🔷 {user.mention} already has the {target_role.mention} role and all its dependencies.")
 
         # --- 3. CALCULATE ROLES TO REMOVE (CONFLICT HIERARCHY) ---
         roles_to_remove = []
