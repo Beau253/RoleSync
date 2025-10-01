@@ -61,16 +61,27 @@ class Delegation(commands.Cog):
 
     # --- Autocomplete Function ---
     async def manageable_roles_autocomplete(self, interaction: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
-        user_role_ids = [role.id for role in interaction.user.roles]
-        manageable_role_ids = await db.get_manageable_roles_for_user(interaction.guild.id, user_role_ids)
-        if not manageable_role_ids: return []
-        
-        choices = []
-        for role_id in manageable_role_ids:
-            role = interaction.guild.get_role(role_id)
-            if role and current.lower() in role.name.lower():
-                choices.append(app_commands.Choice(name=role.name, value=str(role.id)))
-        return choices[:25]
+        # If the user is an administrator, show all roles in the server.
+        if interaction.user.guild_permissions.administrator:
+            all_roles = interaction.guild.roles
+            choices = [
+                app_commands.Choice(name=role.name, value=str(role.id))
+                for role in all_roles
+                if current.lower() in role.name.lower() and not role.is_default() # Exclude @everyone
+            ]
+            return sorted(choices, key=lambda c: c.name)[:25]
+        else:
+            # For non-admins, show only their explicitly manageable roles.
+            user_role_ids = [role.id for role in interaction.user.roles]
+            manageable_role_ids = await db.get_manageable_roles_for_user(interaction.guild.id, user_role_ids)
+            if not manageable_role_ids: return []
+            
+            choices = []
+            for role_id in manageable_role_ids:
+                role = interaction.guild.get_role(role_id)
+                if role and current.lower() in role.name.lower():
+                    choices.append(app_commands.Choice(name=role.name, value=str(role.id)))
+            return choices[:25]
 
     # --- User-Facing Commands ---
     @app_commands.command(name="grant-role", description="Assign a role (and its dependencies) you have permission to manage.")
@@ -82,11 +93,15 @@ class Delegation(commands.Cog):
         # --- 1. VERIFICATION ---
         role_id = int(role)
         target_role = interaction.guild.get_role(role_id)
-        user_role_ids = [r.id for r in interaction.user.roles]
-        manageable_role_ids = await db.get_manageable_roles_for_user(interaction.guild.id, user_role_ids)
-
-        if not target_role or role_id not in manageable_role_ids:
-            return await interaction.followup.send("❌ You do not have permission to manage this role.")
+        
+        # Allow administrators to manage any role, otherwise check for delegated permissions.
+        if not interaction.user.guild_permissions.administrator:
+            user_role_ids = [r.id for r in interaction.user.roles]
+            manageable_role_ids = await db.get_manageable_roles_for_user(interaction.guild.id, user_role_ids)
+            if not target_role or role_id not in manageable_role_ids:
+                return await interaction.followup.send("❌ You do not have permission to manage this role.")
+        elif not target_role: # For admins, just make sure the role exists
+            return await interaction.followup.send("❌ That role could not be found. It may have been deleted.")
 
         # --- 2. CALCULATE ROLES TO ADD (DEPENDENCY HIERARCHY) ---
         # Get all roles this role depends on (upward traversal).
@@ -148,11 +163,14 @@ class Delegation(commands.Cog):
         role_id = int(role)
         target_role = interaction.guild.get_role(role_id)
 
-        user_role_ids = [r.id for r in interaction.user.roles]
-        manageable_role_ids = await db.get_manageable_roles_for_user(interaction.guild.id, user_role_ids)
-
-        if not target_role or role_id not in manageable_role_ids:
-            return await interaction.followup.send("❌ You do not have permission to manage this role.")
+        # Allow administrators to manage any role, otherwise check for delegated permissions.
+        if not interaction.user.guild_permissions.administrator:
+            user_role_ids = [r.id for r in interaction.user.roles]
+            manageable_role_ids = await db.get_manageable_roles_for_user(interaction.guild.id, user_role_ids)
+            if not target_role or role_id not in manageable_role_ids:
+                return await interaction.followup.send("❌ You do not have permission to manage this role.")
+        elif not target_role: # For admins, just make sure the role exists
+            return await interaction.followup.send("❌ That role could not be found. It may have been deleted.")
         
         if target_role not in user.roles:
             return await interaction.followup.send(f"🔷 {user.mention} does not have the {target_role.mention} role.")
